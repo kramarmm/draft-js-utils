@@ -33,6 +33,9 @@ class MarkupGenerator {
   constructor(contentState: ContentState, options?: Options) {
     this.contentState = contentState;
     this.options = options || defaultOptions;
+
+    this.stylesStack = [];
+    this.enabledStyles = new Set();
   }
 
   generate(): string {
@@ -188,6 +191,39 @@ class MarkupGenerator {
     }
   }
 
+  checkMarkupStyle(style, state, type, syntax) {
+    if (style.has(type)) {
+      if (!this.enabledStyles.has(type)) {
+        state.content = `${syntax}${state.content}`;
+        this.stylesStack.push(syntax);
+        this.enabledStyles.add(type);
+      }
+    } else if (this.enabledStyles.has(type)) {
+      state.popCount++;
+      this.enabledStyles.delete(type);
+    }
+  }
+
+  getMarkup(content, style): string {
+    const state = {
+      content,
+      popCount: 0,
+    };
+    const checkMarkupStyleBounded = this.checkMarkupStyle.bind(this, style, state);
+    checkMarkupStyleBounded(BOLD, '**');
+    checkMarkupStyleBounded(UNDERLINE, '++');
+    checkMarkupStyleBounded(ITALIC, '_');
+    checkMarkupStyleBounded(STRIKETHROUGH, '~~');
+
+    if (state.popCount) {
+      for (let i = 1; i <= state.popCount; i ++) {
+        state.content = state.content.concat(this.stylesStack.pop());
+      }
+    }
+
+    return state.content;
+  }
+
   renderBlockContent(block: ContentBlock): string {
     let {contentState} = this;
     let blockType = block.getType();
@@ -219,23 +255,11 @@ class MarkupGenerator {
               return '`' + encodeCode(content) + '`';
             }
             content = encodeContent(text);
-            if (style.has(BOLD)) {
-              content = `**${content}**`;
-            }
-            if (style.has(UNDERLINE)) {
-              // TODO: encode `+`?
-              content = `++${content}++`;
-            }
-            if (style.has(ITALIC)) {
-              content = `_${content}_`;
-            }
-            if (style.has(STRIKETHROUGH)) {
-              // TODO: encode `~`?
-              content = `~~${content}~~`;
-            }
+            content = this.getMarkup(content, style);
             return content;
           })
           .join('');
+          this.enabledStyles.clear();
         let entity = entityKey ? contentState.getEntity(entityKey) : null;
         if (entity != null && entity.getType() === ENTITY_TYPE.LINK) {
           let data = entity.getData();
